@@ -137,7 +137,6 @@
                 intervalDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             }
 
-            // Ahora solo guardamos los datos base. El cálculo se hace al renderizar.
             const record = {
                 id: Date.now(),
                 name,
@@ -161,26 +160,50 @@
             }
         }
 
-        // Mostrar / Ocultar el cuadro para modificar fecha
         function toggleEdit(id) {
             const editBox = document.getElementById(`edit-box-${id}`);
             editBox.classList.toggle('hidden');
         }
 
-        // Guardar la nueva fecha manual
+        // LÓGICA INTELIGENTE DE RECALCULO DE INTERVALO
         function saveNewDate(id) {
             const newDateInput = document.getElementById(`edit-input-${id}`).value;
             if (!newDateInput) return;
 
             const index = records.findIndex(r => r.id === id);
             if (index !== -1) {
-                records[index].lastDate = newDateInput;
-                localStorage.setItem('trackerDataV2', JSON.stringify(records));
-                renderRecords(); // Vuelve a calcular todo
+                const oldDate = new Date(records[index].lastDate + 'T12:00:00');
+                const newDate = new Date(newDateInput + 'T12:00:00');
+
+                // Si la fecha realmente cambió
+                if (newDate.getTime() !== oldDate.getTime()) {
+                    
+                    // Si es un nuevo registro hacia el futuro
+                    if (newDate > oldDate) {
+                        const diffTime = Math.abs(newDate - oldDate);
+                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                        
+                        // Si la diferencia es un ciclo normal (entre 15 y 50 días), recalcula el intervalo automáticamente.
+                        if (diffDays >= 15 && diffDays <= 50) {
+                            records[index].intervalDays = diffDays;
+                            alert(`¡Nuevo ciclo detectado!\nEl intervalo de ${records[index].name} se ajustó automáticamente a ${diffDays} días para ser más preciso.`);
+                        } else if (diffDays > 50) {
+                            alert("Fecha actualizada.\n(Como pasaron más de 50 días, mantuvimos el intervalo promedio actual para no alterar los cálculos).");
+                        }
+                    } else {
+                        // Si está corrigiendo una fecha hacia atrás
+                        alert("Fecha corregida exitosamente.");
+                    }
+                    
+                    records[index].lastDate = newDateInput;
+                    localStorage.setItem('trackerDataV2', JSON.stringify(records));
+                    renderRecords();
+                } else {
+                    toggleEdit(id); // Si no cambió nada, solo cierra la caja
+                }
             }
         }
 
-        // Generar alarma
         function createAlarm(name, dateISO) {
             const dateParts = dateISO.split('-');
             const dtstart = `${dateParts[0]}${dateParts[1]}${dateParts[2]}T120000`;
@@ -200,7 +223,6 @@
             alert(`Se descargó la alarma para "${name}".\nToca "Abrir" para guardarla en tu calendario.`);
         }
 
-        // Exportar e Importar
         function exportData() {
             if (records.length === 0) return;
             const dataStr = JSON.stringify(records);
@@ -233,7 +255,7 @@
             reader.readAsText(file);
         }
 
-        // FUNCIÓN PRINCIPAL: Dibuja las tarjetas y actualiza fechas automáticamente
+        // LÓGICA DE DIBUJO Y AVANCE VISUAL
         function renderRecords() {
             recordsList.innerHTML = '';
             if (records.length === 0) {
@@ -242,14 +264,10 @@
             }
 
             const now = new Date();
-            let dataWasUpdated = false;
             
             records.forEach(r => {
-                // Configurar la fecha inicial
                 let baseDate = new Date(r.lastDate + 'T12:00:00');
                 
-                // LÓGICA DE ACTUALIZACIÓN AUTOMÁTICA
-                // Calcula el día clave. Si ya pasó, avanza al siguiente mes automáticamente.
                 let nextPeriod = new Date(baseDate);
                 nextPeriod.setDate(nextPeriod.getDate() + r.intervalDays);
                 
@@ -257,9 +275,9 @@
                 keyDate.setDate(keyDate.getDate() - 14);
 
                 let endOfWindow = new Date(keyDate);
-                endOfWindow.setDate(endOfWindow.getDate() + 1); // 1 día después del día clave
+                endOfWindow.setDate(endOfWindow.getDate() + 1);
 
-                // Mientras el periodo ya haya pasado, avanza el ciclo
+                // Avance automático VISUAL (No altera la base de datos de r.lastDate)
                 while (now > endOfWindow) {
                     baseDate.setDate(baseDate.getDate() + r.intervalDays);
                     
@@ -271,15 +289,9 @@
                     
                     endOfWindow = new Date(keyDate);
                     endOfWindow.setDate(endOfWindow.getDate() + 1);
-                    dataWasUpdated = true;
                 }
 
-                if (dataWasUpdated) {
-                    // Guarda la nueva fecha base para el futuro
-                    r.lastDate = baseDate.toISOString().split('T')[0];
-                }
-
-                // Generar los textos finales para mostrar en pantalla
+                // Generar textos
                 let windowStartDate = new Date(keyDate);
                 windowStartDate.setDate(windowStartDate.getDate() - 4);
                 
@@ -291,7 +303,6 @@
                 const windowStr = `${windowStartDate.toLocaleDateString('es-ES', dateOptions)} al ${keyDateStr}`;
                 const notifIsoStr = `${notificationDate.getFullYear()}-${String(notificationDate.getMonth()+1).padStart(2, '0')}-${String(notificationDate.getDate()).padStart(2, '0')}`;
 
-                // Dibujar la tarjeta
                 const div = document.createElement('div');
                 div.className = 'bg-white p-5 rounded-xl shadow-sm border border-gray-100 relative';
                 div.innerHTML = `
@@ -300,40 +311,34 @@
                     </button>
                     
                     <h3 class="font-bold text-xl text-blue-700 capitalize pr-8">${r.name}</h3>
-                    <p class="text-sm text-gray-500 mb-4">Intervalo: ${r.intervalDays} días</p>
+                    <p class="text-sm text-gray-500 mb-4">Intervalo promedio: <span class="font-bold text-blue-600">${r.intervalDays} días</span></p>
                     
                     <div class="bg-blue-50 rounded-lg p-3 border border-blue-100 mb-3">
                         <p class="text-sm text-blue-900 mb-1"><strong>Día clave:</strong> ${keyDateStr}</p>
                         <p class="text-sm text-blue-900"><strong>Periodo de interés:</strong><br> ${windowStr}</p>
                     </div>
 
-                    <!-- Botones de acción -->
                     <div class="flex flex-col space-y-2 mb-2">
                         <button onclick="createAlarm('${r.name}', '${notifIsoStr}')" class="w-full bg-gray-800 text-white p-2 rounded-lg text-sm font-semibold hover:bg-gray-900 transition flex justify-center items-center">
                             <span class="mr-2">🔔</span> Activar recordatorio (12:00 PM)
                         </button>
                         
                         <button onclick="toggleEdit(${r.id})" class="w-full bg-gray-100 text-gray-600 p-2 rounded-lg text-sm font-semibold hover:bg-gray-200 transition">
-                            ✏️ Modificar registro base
+                            📅 Actualizar / Ingresar nuevo registro
                         </button>
                     </div>
 
-                    <!-- Caja oculta para editar la fecha manualmente -->
                     <div id="edit-box-${r.id}" class="hidden mt-2 p-3 bg-gray-50 border rounded-lg">
-                        <label class="block text-xs font-semibold text-gray-600 mb-1">Nueva fecha del registro:</label>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">Ingresa la nueva fecha exacta:</label>
                         <div class="flex space-x-2">
-                            <input type="date" id="edit-input-${r.id}" value="${r.lastDate}" class="flex-1 text-sm border border-gray-300 rounded-md p-2 outline-none focus:border-blue-500">
-                            <button onclick="saveNewDate(${r.id})" class="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-bold shadow-sm">OK</button>
+                            <input type="date" id="edit-input-${r.id}" class="flex-1 text-sm border border-gray-300 rounded-md p-2 outline-none focus:border-blue-500">
+                            <button onclick="saveNewDate(${r.id})" class="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-bold shadow-sm">Guardar</button>
                         </div>
+                        <p class="text-xs text-gray-400 mt-2 italic">La aplicación ajustará tu intervalo de días automáticamente si es necesario.</p>
                     </div>
                 `;
                 recordsList.appendChild(div);
             });
-
-            // Si se actualizó algo automáticamente en el fondo, lo guardamos
-            if (dataWasUpdated) {
-                localStorage.setItem('trackerDataV2', JSON.stringify(records));
-            }
         }
 
         renderRecords();
