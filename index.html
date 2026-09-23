@@ -7,7 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#3B82F6"> <!-- Cambié el color a azul para que parezca de trabajo -->
+    <meta name="theme-color" content="#3B82F6">
     <link rel="manifest" href="manifest.json">
 </head>
 <body class="bg-gray-100 p-4 font-sans antialiased">
@@ -56,7 +56,7 @@
                 </div>
 
                 <button type="submit" class="w-full bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-700 font-bold shadow-md transition transform hover:-translate-y-0.5">
-                    Guardar y Calcular
+                    Guardar Nuevo Contacto
                 </button>
             </form>
         </div>
@@ -90,7 +90,7 @@
         const radioMethods = document.getElementsByName('calcMethod');
         const recordsList = document.getElementById('recordsList');
         
-        let records = JSON.parse(localStorage.getItem('trackerData')) || [];
+        let records = JSON.parse(localStorage.getItem('trackerDataV2')) || [];
 
         radioMethods.forEach(radio => {
             radio.addEventListener('change', (e) => {
@@ -135,43 +135,18 @@
 
                 const diffTime = Math.abs(lastRecordDate - prevRecordDate);
                 intervalDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                
-                if (intervalDays < 15 || intervalDays > 50) {
-                    alert(`El intervalo calculado es de ${intervalDays} días. Revisa las fechas.`);
-                    return;
-                }
             }
 
-            // Cálculos discretos
-            const nextRecordDate = new Date(lastRecordDate);
-            nextRecordDate.setDate(nextRecordDate.getDate() + intervalDays);
-            
-            const keyDate = new Date(nextRecordDate);
-            keyDate.setDate(keyDate.getDate() - 14); // Antiguo día de ovulación
-            
-            const windowStartDate = new Date(keyDate);
-            windowStartDate.setDate(windowStartDate.getDate() - 4); // Inicio de ventana
-            
-            // Segundo día de la ventana de interés (para la notificación)
-            const notificationDate = new Date(windowStartDate);
-            notificationDate.setDate(notificationDate.getDate() + 1);
-            
-            const dateOptions = { day: 'numeric', month: 'long' };
-
-            // Formato ISO para armar el calendario después YYYY-MM-DD
-            const notifIsoStr = `${notificationDate.getFullYear()}-${String(notificationDate.getMonth()+1).padStart(2, '0')}-${String(notificationDate.getDate()).padStart(2, '0')}`;
-
+            // Ahora solo guardamos los datos base. El cálculo se hace al renderizar.
             const record = {
                 id: Date.now(),
                 name,
                 intervalDays,
-                keyDateStr: keyDate.toLocaleDateString('es-ES', dateOptions),
-                windowStr: `${windowStartDate.toLocaleDateString('es-ES', dateOptions)} al ${keyDate.toLocaleDateString('es-ES', dateOptions)}`,
-                notifIsoStr: notifIsoStr
+                lastDate: lastRecordStr
             };
 
             records.unshift(record);
-            localStorage.setItem('trackerData', JSON.stringify(records));
+            localStorage.setItem('trackerDataV2', JSON.stringify(records));
             
             renderRecords();
             form.reset();
@@ -181,38 +156,37 @@
         function deleteRecord(id) {
             if(confirm("¿Borrar este contacto?")) {
                 records = records.filter(r => r.id !== id);
-                localStorage.setItem('trackerData', JSON.stringify(records));
+                localStorage.setItem('trackerDataV2', JSON.stringify(records));
                 renderRecords();
             }
         }
 
-        // Función para crear la notificación en el calendario a las 12:00 PM
+        // Mostrar / Ocultar el cuadro para modificar fecha
+        function toggleEdit(id) {
+            const editBox = document.getElementById(`edit-box-${id}`);
+            editBox.classList.toggle('hidden');
+        }
+
+        // Guardar la nueva fecha manual
+        function saveNewDate(id) {
+            const newDateInput = document.getElementById(`edit-input-${id}`).value;
+            if (!newDateInput) return;
+
+            const index = records.findIndex(r => r.id === id);
+            if (index !== -1) {
+                records[index].lastDate = newDateInput;
+                localStorage.setItem('trackerDataV2', JSON.stringify(records));
+                renderRecords(); // Vuelve a calcular todo
+            }
+        }
+
+        // Generar alarma
         function createAlarm(name, dateISO) {
             const dateParts = dateISO.split('-');
-            const year = dateParts[0];
-            const month = dateParts[1];
-            const day = dateParts[2];
+            const dtstart = `${dateParts[0]}${dateParts[1]}${dateParts[2]}T120000`;
+            const dtend = `${dateParts[0]}${dateParts[1]}${dateParts[2]}T121500`;
             
-            // 12:00:00 (mediodía) hora local del celular
-            const dtstart = `${year}${month}${day}T120000`;
-            const dtend = `${year}${month}${day}T121500`; // Dura 15 minutos
-            
-            const icsContent = 
-`BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//Agenda Frecuente//ES
-BEGIN:VEVENT
-SUMMARY:Escribir a ${name}
-DTSTART:${dtstart}
-DTEND:${dtend}
-DESCRIPTION:Recordatorio programado.
-BEGIN:VALARM
-TRIGGER:-PT0M
-ACTION:DISPLAY
-DESCRIPTION:Recordatorio
-END:VALARM
-END:VEVENT
-END:VCALENDAR`;
+            const icsContent = `BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//Agenda Frecuente//ES\nBEGIN:VEVENT\nSUMMARY:Escribir a ${name}\nDTSTART:${dtstart}\nDTEND:${dtend}\nDESCRIPTION:Recordatorio programado.\nBEGIN:VALARM\nTRIGGER:-PT0M\nACTION:DISPLAY\nDESCRIPTION:Recordatorio\nEND:VALARM\nEND:VEVENT\nEND:VCALENDAR`;
 
             const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
             const url = window.URL.createObjectURL(blob);
@@ -223,9 +197,10 @@ END:VCALENDAR`;
             a.click();
             document.body.removeChild(a);
             
-            alert(`Se descargó la alarma para "${name}".\nToca "Abrir" en tu teléfono para guardarla en tu calendario.`);
+            alert(`Se descargó la alarma para "${name}".\nToca "Abrir" para guardarla en tu calendario.`);
         }
 
+        // Exportar e Importar
         function exportData() {
             if (records.length === 0) return;
             const dataStr = JSON.stringify(records);
@@ -249,7 +224,7 @@ END:VCALENDAR`;
                         const existingIds = new Set(records.map(r => r.id));
                         const newRecords = importedRecords.filter(r => !existingIds.has(r.id));
                         records = [...newRecords, ...records];
-                        localStorage.setItem('trackerData', JSON.stringify(records));
+                        localStorage.setItem('trackerDataV2', JSON.stringify(records));
                         renderRecords();
                     }
                 } catch (error) {}
@@ -258,34 +233,107 @@ END:VCALENDAR`;
             reader.readAsText(file);
         }
 
+        // FUNCIÓN PRINCIPAL: Dibuja las tarjetas y actualiza fechas automáticamente
         function renderRecords() {
             recordsList.innerHTML = '';
             if (records.length === 0) {
                 recordsList.innerHTML = '<p class="text-gray-500 text-center py-6 bg-white rounded-xl shadow-sm">No hay contactos guardados.</p>';
                 return;
             }
+
+            const now = new Date();
+            let dataWasUpdated = false;
             
             records.forEach(r => {
+                // Configurar la fecha inicial
+                let baseDate = new Date(r.lastDate + 'T12:00:00');
+                
+                // LÓGICA DE ACTUALIZACIÓN AUTOMÁTICA
+                // Calcula el día clave. Si ya pasó, avanza al siguiente mes automáticamente.
+                let nextPeriod = new Date(baseDate);
+                nextPeriod.setDate(nextPeriod.getDate() + r.intervalDays);
+                
+                let keyDate = new Date(nextPeriod);
+                keyDate.setDate(keyDate.getDate() - 14);
+
+                let endOfWindow = new Date(keyDate);
+                endOfWindow.setDate(endOfWindow.getDate() + 1); // 1 día después del día clave
+
+                // Mientras el periodo ya haya pasado, avanza el ciclo
+                while (now > endOfWindow) {
+                    baseDate.setDate(baseDate.getDate() + r.intervalDays);
+                    
+                    nextPeriod = new Date(baseDate);
+                    nextPeriod.setDate(nextPeriod.getDate() + r.intervalDays);
+                    
+                    keyDate = new Date(nextPeriod);
+                    keyDate.setDate(keyDate.getDate() - 14);
+                    
+                    endOfWindow = new Date(keyDate);
+                    endOfWindow.setDate(endOfWindow.getDate() + 1);
+                    dataWasUpdated = true;
+                }
+
+                if (dataWasUpdated) {
+                    // Guarda la nueva fecha base para el futuro
+                    r.lastDate = baseDate.toISOString().split('T')[0];
+                }
+
+                // Generar los textos finales para mostrar en pantalla
+                let windowStartDate = new Date(keyDate);
+                windowStartDate.setDate(windowStartDate.getDate() - 4);
+                
+                let notificationDate = new Date(windowStartDate);
+                notificationDate.setDate(notificationDate.getDate() + 1);
+                
+                const dateOptions = { day: 'numeric', month: 'long' };
+                const keyDateStr = keyDate.toLocaleDateString('es-ES', dateOptions);
+                const windowStr = `${windowStartDate.toLocaleDateString('es-ES', dateOptions)} al ${keyDateStr}`;
+                const notifIsoStr = `${notificationDate.getFullYear()}-${String(notificationDate.getMonth()+1).padStart(2, '0')}-${String(notificationDate.getDate()).padStart(2, '0')}`;
+
+                // Dibujar la tarjeta
                 const div = document.createElement('div');
                 div.className = 'bg-white p-5 rounded-xl shadow-sm border border-gray-100 relative';
                 div.innerHTML = `
                     <button onclick="deleteRecord(${r.id})" class="absolute top-4 right-4 text-gray-300 hover:text-red-500 transition">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
                     </button>
+                    
                     <h3 class="font-bold text-xl text-blue-700 capitalize pr-8">${r.name}</h3>
                     <p class="text-sm text-gray-500 mb-4">Intervalo: ${r.intervalDays} días</p>
                     
                     <div class="bg-blue-50 rounded-lg p-3 border border-blue-100 mb-3">
-                        <p class="text-sm text-blue-900 mb-1"><strong>Día clave:</strong> ${r.keyDateStr}</p>
-                        <p class="text-sm text-blue-900"><strong>Periodo de interés:</strong><br> ${r.windowStr}</p>
+                        <p class="text-sm text-blue-900 mb-1"><strong>Día clave:</strong> ${keyDateStr}</p>
+                        <p class="text-sm text-blue-900"><strong>Periodo de interés:</strong><br> ${windowStr}</p>
                     </div>
 
-                    <button onclick="createAlarm('${r.name}', '${r.notifIsoStr}')" class="w-full bg-gray-800 text-white p-2 rounded-lg text-sm font-semibold hover:bg-gray-900 transition flex justify-center items-center">
-                        <span class="mr-2">🔔</span> Activar recordatorio (12:00 PM)
-                    </button>
+                    <!-- Botones de acción -->
+                    <div class="flex flex-col space-y-2 mb-2">
+                        <button onclick="createAlarm('${r.name}', '${notifIsoStr}')" class="w-full bg-gray-800 text-white p-2 rounded-lg text-sm font-semibold hover:bg-gray-900 transition flex justify-center items-center">
+                            <span class="mr-2">🔔</span> Activar recordatorio (12:00 PM)
+                        </button>
+                        
+                        <button onclick="toggleEdit(${r.id})" class="w-full bg-gray-100 text-gray-600 p-2 rounded-lg text-sm font-semibold hover:bg-gray-200 transition">
+                            ✏️ Modificar registro base
+                        </button>
+                    </div>
+
+                    <!-- Caja oculta para editar la fecha manualmente -->
+                    <div id="edit-box-${r.id}" class="hidden mt-2 p-3 bg-gray-50 border rounded-lg">
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">Nueva fecha del registro:</label>
+                        <div class="flex space-x-2">
+                            <input type="date" id="edit-input-${r.id}" value="${r.lastDate}" class="flex-1 text-sm border border-gray-300 rounded-md p-2 outline-none focus:border-blue-500">
+                            <button onclick="saveNewDate(${r.id})" class="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-bold shadow-sm">OK</button>
+                        </div>
+                    </div>
                 `;
                 recordsList.appendChild(div);
             });
+
+            // Si se actualizó algo automáticamente en el fondo, lo guardamos
+            if (dataWasUpdated) {
+                localStorage.setItem('trackerDataV2', JSON.stringify(records));
+            }
         }
 
         renderRecords();
