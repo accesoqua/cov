@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App de Ciclo y Ovulación</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#9333EA">
+</head>
+<body class="bg-gray-100 p-4 font-sans antialiased">
+    
+    <div class="max-w-md mx-auto bg-white rounded-2xl shadow-lg overflow-hidden md:max-w-xl mb-6">
+        <div class="bg-purple-600 p-5 text-white text-center">
+            <h1 class="text-2xl font-bold">Rastreador de Ciclo</h1>
+            <p class="text-purple-200 text-sm mt-1">Calcula ventanas de ovulación</p>
+        </div>
+
+        <div class="p-6">
+            <form id="cycleForm" class="space-y-5">
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700">Nombre de la persona</label>
+                    <input type="text" id="name" required placeholder="Ej: María" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm p-3 border focus:border-purple-500 focus:ring-purple-500 outline-none transition">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700">Primer día del último periodo</label>
+                    <input type="date" id="lastPeriod" required class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm p-3 border focus:border-purple-500 focus:ring-purple-500 outline-none transition">
+                </div>
+
+                <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">¿Cómo calcular la duración del ciclo?</label>
+                    <div class="flex space-x-4">
+                        <label class="flex items-center">
+                            <input type="radio" name="calcMethod" value="manual" checked class="text-purple-600 focus:ring-purple-500">
+                            <span class="ml-2 text-sm text-gray-700">Ingresar días</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="radio" name="calcMethod" value="dates" class="text-purple-600 focus:ring-purple-500">
+                            <span class="ml-2 text-sm text-gray-700">Usar 2 fechas</span>
+                        </label>
+                    </div>
+
+                    <div id="manualInput" class="mt-4">
+                        <label class="block text-sm font-medium text-gray-600">Duración del ciclo (en días)</label>
+                        <input type="number" id="cycleLength" value="28" min="20" max="45" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border outline-none">
+                    </div>
+
+                    <div id="datesInput" class="mt-4 hidden">
+                        <label class="block text-sm font-medium text-gray-600">Primer día del periodo ANTERIOR</label>
+                        <input type="date" id="prevPeriod" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border outline-none">
+                        <p class="text-xs text-gray-500 mt-2">La app calculará los días de diferencia automáticamente.</p>
+                    </div>
+                </div>
+
+                <button type="submit" class="w-full bg-purple-600 text-white p-3 rounded-xl hover:bg-purple-700 font-bold shadow-md transition transform hover:-translate-y-0.5">
+                    Guardar y Calcular
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Lista de perfiles y botones de respaldo -->
+    <div class="max-w-md mx-auto pb-10">
+        <h2 class="text-xl font-bold mb-4 text-gray-800 px-2">Perfiles Guardados</h2>
+        
+        <div id="recordsList" class="space-y-4 mb-6"></div>
+
+        <!-- Zona de Importar/Exportar -->
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+            <h3 class="text-sm font-bold text-gray-700 mb-3 text-center">Respaldo de Datos</h3>
+            <div class="flex space-x-3">
+                <button onclick="exportData()" type="button" class="flex-1 bg-gray-100 text-gray-700 p-2 rounded-lg hover:bg-gray-200 text-sm font-semibold transition border border-gray-300">
+                    📤 Exportar
+                </button>
+                <button onclick="document.getElementById('importFile').click()" type="button" class="flex-1 bg-gray-100 text-gray-700 p-2 rounded-lg hover:bg-gray-200 text-sm font-semibold transition border border-gray-300">
+                    📥 Importar
+                </button>
+                <input type="file" id="importFile" class="hidden" accept=".json" onchange="importData(event)">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('cycleForm');
+        const manualInput = document.getElementById('manualInput');
+        const datesInput = document.getElementById('datesInput');
+        const radioMethods = document.getElementsByName('calcMethod');
+        const recordsList = document.getElementById('recordsList');
+        
+        let records = JSON.parse(localStorage.getItem('cycleData')) || [];
+
+        radioMethods.forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                if (e.target.value === 'manual') {
+                    manualInput.classList.remove('hidden');
+                    datesInput.classList.add('hidden');
+                    document.getElementById('cycleLength').required = true;
+                    document.getElementById('prevPeriod').required = false;
+                } else {
+                    manualInput.classList.add('hidden');
+                    datesInput.classList.remove('hidden');
+                    document.getElementById('cycleLength').required = false;
+                    document.getElementById('prevPeriod').required = true;
+                }
+            });
+        });
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            const name = document.getElementById('name').value;
+            const lastPeriodStr = document.getElementById('lastPeriod').value;
+            const method = document.querySelector('input[name="calcMethod"]:checked').value;
+            
+            const lastPeriodDate = new Date(lastPeriodStr + 'T12:00:00'); 
+            let cycleDays = 28;
+            
+            if (method === 'manual') {
+                cycleDays = parseInt(document.getElementById('cycleLength').value);
+            } else {
+                const prevPeriodStr = document.getElementById('prevPeriod').value;
+                if (!prevPeriodStr) {
+                    alert("Por favor ingresa la fecha del periodo anterior.");
+                    return;
+                }
+                const prevPeriodDate = new Date(prevPeriodStr + 'T12:00:00');
+                
+                if (lastPeriodDate <= prevPeriodDate) {
+                    alert("El último periodo debe ser una fecha posterior al periodo anterior.");
+                    return;
+                }
+
+                const diffTime = Math.abs(lastPeriodDate - prevPeriodDate);
+                cycleDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                
+                if (cycleDays < 15 || cycleDays > 50) {
+                    alert(`El ciclo calculado es de ${cycleDays} días. Revisa las fechas, parece un número inusual.`);
+                    return;
+                }
+            }
+
+            const nextPeriodDate = new Date(lastPeriodDate);
+            nextPeriodDate.setDate(nextPeriodDate.getDate() + cycleDays);
+            
+            const ovulationDate = new Date(nextPeriodDate);
+            ovulationDate.setDate(ovulationDate.getDate() - 14);
+            
+            const peakStartDate = new Date(ovulationDate);
+            peakStartDate.setDate(peakStartDate.getDate() - 4);
+            
+            const dateOptions = { day: 'numeric', month: 'long' };
+
+            const record = {
+                id: Date.now(),
+                name,
+                cycleDays,
+                ovulationDate: ovulationDate.toLocaleDateString('es-ES', dateOptions),
+                peakWindow: `${peakStartDate.toLocaleDateString('es-ES', dateOptions)} al ${ovulationDate.toLocaleDateString('es-ES', dateOptions)}`
+            };
+
+            records.unshift(record);
+            localStorage.setItem('cycleData', JSON.stringify(records));
+            
+            renderRecords();
+            form.reset();
+            document.querySelector('input[value="manual"]').click();
+        });
+
+        function deleteRecord(id) {
+            if(confirm("¿Seguro que quieres borrar este perfil?")) {
+                records = records.filter(r => r.id !== id);
+                localStorage.setItem('cycleData', JSON.stringify(records));
+                renderRecords();
+            }
+        }
+
+        // --- FUNCIONES NUEVAS DE EXPORTAR / IMPORTAR ---
+        function exportData() {
+            if (records.length === 0) {
+                alert("No hay perfiles para exportar.");
+                return;
+            }
+            
+            const dataStr = JSON.stringify(records);
+            const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+            const exportFileDefaultName = 'mis_datos_ciclo.json';
+            
+            const linkElement = document.createElement('a');
+            linkElement.setAttribute('href', dataUri);
+            linkElement.setAttribute('download', exportFileDefaultName);
+            document.body.appendChild(linkElement);
+            linkElement.click();
+            document.body.removeChild(linkElement);
+        }
+
+        function importData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const importedRecords = JSON.parse(e.target.result);
+                    
+                    if (Array.isArray(importedRecords)) {
+                        // Combina los datos nuevos con los existentes (evitando duplicar el mismo ID)
+                        const existingIds = new Set(records.map(r => r.id));
+                        const newRecords = importedRecords.filter(r => !existingIds.has(r.id));
+                        
+                        records = [...newRecords, ...records];
+                        localStorage.setItem('cycleData', JSON.stringify(records));
+                        renderRecords();
+                        alert(`Se importaron ${newRecords.length} perfiles exitosamente.`);
+                    } else {
+                        alert("El archivo no tiene el formato correcto.");
+                    }
+                } catch (error) {
+                    alert("Error al leer el archivo. Asegúrate de seleccionar el archivo 'mis_datos_ciclo.json'.");
+                }
+                
+                // Limpiar el campo de archivo por si se quiere volver a usar
+                event.target.value = '';
+            };
+            reader.readAsText(file);
+        }
+
+        function renderRecords() {
+            recordsList.innerHTML = '';
+            if (records.length === 0) {
+                recordsList.innerHTML = '<p class="text-gray-500 text-center py-6 bg-white rounded-xl shadow-sm">No hay perfiles guardados aún.</p>';
+                return;
+            }
+            
+            records.forEach(r => {
+                const div = document.createElement('div');
+                div.className = 'bg-white p-5 rounded-xl shadow-sm border border-gray-100 relative';
+                div.innerHTML = `
+                    <button onclick="deleteRecord(${r.id})" class="absolute top-4 right-4 text-gray-300 hover:text-red-500 transition">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+                    </button>
+                    <h3 class="font-bold text-xl text-purple-700 capitalize pr-8">${r.name}</h3>
+                    <p class="text-sm text-gray-500 mb-4">Ciclo promedio: ${r.cycleDays} días</p>
+                    
+                    <div class="bg-purple-50 rounded-lg p-3 border border-purple-100">
+                        <p class="text-sm text-purple-900 mb-1"><strong>Día de Ovulación:</strong> ${r.ovulationDate}</p>
+                        <p class="text-sm text-purple-900"><strong>Ventana de mayor deseo:</strong><br> ${r.peakWindow}</p>
+                    </div>
+                `;
+                recordsList.appendChild(div);
+            });
+        }
+
+        renderRecords();
+    </script>
+</body>
+</html>
